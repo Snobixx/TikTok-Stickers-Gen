@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="fr">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,26 +10,21 @@
   <link rel="icon"
     href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2338bdf8'><rect x='2' y='2' width='9' height='9' rx='2.5'/><rect x='13' y='2' width='9' height='9' rx='2.5'/><rect x='2' y='13' width='9' height='9' rx='2.5'/><rect x='13' y='13' width='9' height='9' rx='2.5'/></svg>">
 
-  <!-- Google Fonts: Inter & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
 
-  <!-- CSS -->
   <link rel="stylesheet" href="css/style.css">
 
-  <!-- JSZip & MP4-Muxer Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://unpkg.com/mp4-muxer"></script>
 </head>
 
 <body>
-  <!-- Ambient background grid pattern -->
   <div class="bg-grid-pattern"></div>
 
-  <!-- Navbar (QBox Docs Style) -->
   <header class="app-navbar">
     <div class="navbar-container">
       <a href="#" class="logo-group">
@@ -66,10 +60,8 @@
     </div>
   </header>
 
-  <!-- Main Application Body -->
   <main class="app-main">
 
-    <!-- Hero Section -->
     <section class="hero-section">
       <div class="hero-pill">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -96,10 +88,8 @@
       </div>
     </section>
 
-    <!-- Workspace Grid -->
     <div class="workspace-grid">
 
-      <!-- LEFT COLUMN : Settings & Parameters -->
       <aside class="settings-column">
         <div class="card-panel">
           <div class="card-header">
@@ -124,7 +114,6 @@
 
           <div class="card-body">
 
-            <!-- Video Upload Dropzone -->
             <div class="upload-dropzone" id="uploadDropzone">
               <input type="file" id="videoInput" accept="video/*,.mp4,.webm,.mov,.mkv,.m4v,.MOV,.MP4">
               <div class="dropzone-icon">
@@ -138,7 +127,6 @@
               <div class="dropzone-hint">ou cliquez pour parcourir (MP4, WEBM, MOV)</div>
             </div>
 
-            <!-- Loaded File Info Bar -->
             <div class="file-loaded-info" id="fileLoadedInfo">
               <div class="file-loaded-details">
                 <div class="file-loaded-icon">
@@ -160,7 +148,6 @@
               </button>
             </div>
 
-            <!-- Grille Layout Selector (3x2 vs 2x3) -->
             <div class="form-group">
               <div class="form-label-row">
                 <label class="form-label">Disposition des 6 Cases</label>
@@ -192,7 +179,6 @@
               </div>
             </div>
 
-            <!-- Fit Mode -->
             <div class="form-group">
               <label class="form-label">Mode de Remplissage</label>
               <div class="segmented-control">
@@ -205,7 +191,6 @@
               </div>
             </div>
 
-            <!-- Zoom & Pan Sliders -->
             <div class="form-group">
               <div class="form-label-row">
                 <label class="form-label">Échelle (Zoom)</label>
@@ -232,7 +217,6 @@
               </div>
             </div>
 
-            <!-- Gap Spacing & Align Reset -->
             <div class="form-group">
               <div class="form-label-row">
                 <label class="form-label">Espacement entre les cases (Gap)</label>
@@ -251,7 +235,6 @@
               </button>
             </div>
 
-            <!-- Background color for rounded corners -->
             <div class="form-group">
               <div class="form-label-row">
                 <label class="form-label">Couleur de fond (Coins arrondis)</label>
@@ -268,7 +251,6 @@
               </div>
             </div>
 
-            <!-- Export Parameters (Trim & FPS) -->
             <div class="dual-slider-grid">
               <div class="form-group">
                 <div class="form-label-row">
@@ -291,7 +273,6 @@
               </div>
             </div>
 
-            <!-- Quick duration presets -->
             <div style="display:flex; gap:0.4rem; align-items:center;">
               <span style="font-size:0.72rem; color:var(--text-muted);">Presets :</span>
               <button type="button" class="btn-subtle preset-duration-btn" data-sec="1.5"
@@ -315,12 +296,11 @@
               </select>
             </div>
 
-            <!-- Primary Action Button -->
             <button type="button" class="btn-primary-action" id="generateBtn" disabled>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
               </svg>
               Générer le Pack TikTok (.ZIP)
             </button>
@@ -329,7 +309,6 @@
         </div>
       </aside>
 
-      <!-- RIGHT COLUMN : Live Preview & Grid Stage -->
       <section class="preview-column">
         <div class="preview-container">
 
@@ -360,11 +339,9 @@
 
             <div class="card-body" style="padding: 1.5rem;">
 
-              <!-- Viewer Stage -->
               <div class="stage-wrapper" id="stageWrapper">
                 <div class="stage-bg-pattern"></div>
 
-                <!-- Empty State -->
                 <div class="stage-empty-state" id="stageEmptyState">
                   <div class="empty-icon-glow">
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -378,14 +355,11 @@
                   </p>
                 </div>
 
-                <!-- Full Grid View -->
                 <div class="grid-stage-viewport" id="gridStageViewport">
                   <div class="stickers-grid-display mode-3x2" id="stickersGridDisplay">
-                    <!-- 6 square cells dynamically injected by app.js -->
                   </div>
                 </div>
 
-                <!-- Single Case Inspection View -->
                 <div class="single-case-view" id="singleCaseView">
                   <div class="single-case-canvas-wrapper">
                     <canvas id="singleCaseCanvas" width="354" height="354"></canvas>
@@ -404,7 +378,6 @@
 
               </div>
 
-              <!-- Playback Controls Bar -->
               <div class="playback-bar">
                 <button type="button" class="btn-play-pause" id="playPauseBtn">
                   <svg id="playPauseIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -423,7 +396,6 @@
 
     </div>
 
-    <!-- Technical Specs & Documentation Section (QBox Docs Style) -->
     <section class="docs-section" id="docs">
       <div class="docs-header">
         <h2 class="docs-title">Spécifications Techniques TikTok Stickers</h2>
@@ -491,7 +463,6 @@
 
   </main>
 
-  <!-- Progress & Encoding Modal -->
   <div class="modal-backdrop" id="progressModal">
     <div class="modal-content">
       <div class="modal-header">
@@ -515,12 +486,10 @@
       </div>
 
       <div class="progress-logs-container" id="progressLogs">
-        <!-- Live log entries -->
       </div>
     </div>
   </div>
 
-  <!-- Results Screen Modal -->
   <div class="modal-backdrop" id="resultsModal">
     <div class="modal-content" style="max-width: 640px;">
       <div class="modal-header">
@@ -594,13 +563,11 @@
           Téléchargement individuel des fichiers :
         </div>
         <div class="files-preview-list" id="individualFilesList">
-          <!-- Dynamically populated files list -->
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Footer -->
   <footer class="app-footer">
     <div class="footer-content">
       <div>TikTok Stickers Studio • Compatible GitHub Pages (100% Client-Side)</div>
@@ -608,10 +575,8 @@
     </div>
   </footer>
 
-  <!-- Hidden Native Video Player for smooth decoding -->
   <video id="activeVideoPlayer" playsinline muted loop style="display:none;"></video>
 
-  <!-- Application Scripts (Classic JS: 100% compatible file://, localhost & GitHub Pages) -->
   <script src="js/video-engine.js"></script>
   <script src="js/app.js"></script>
 </body>

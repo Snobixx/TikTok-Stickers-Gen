@@ -1,9 +1,3 @@
-/**
- * TikTok Stickers Grid - Video & Animation Processing Engine
- * Version 100% Autonome & Zero-Dependence (Compatible file://, localhost & GitHub Pages)
- */
-
-// Canvas roundRect polyfill
 if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
   CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
     if (w < 2 * r) r = w / 2;
@@ -19,10 +13,6 @@ if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D
   };
 }
 
-/**
- * Pure JavaScript Lightweight GIF89a Encoder
- * Guarantees GIF export works 100% offline, on file:// and without CDN dependencies
- */
 class BuiltinGifEncoder {
   constructor(width, height) {
     this.width = width;
@@ -30,17 +20,14 @@ class BuiltinGifEncoder {
     this.frames = [];
   }
 
-  // Quantize RGBA buffer to 256 colors using octree/median-cut approximation
   quantize(rgba) {
     const colorMap = new Map();
     const len = rgba.length;
-    // Sample pixels for speed (every 4th pixel if large)
     const step = len > 354 * 354 * 4 * 2 ? 8 : 4;
 
     for (let i = 0; i < len; i += step * 4) {
       const a = rgba[i + 3];
-      if (a < 128) continue; // skip transparent
-      // Quantize to 5-5-5 bits for palette reduction
+      if (a < 128) continue;
       const r = rgba[i] & 0xf8;
       const g = rgba[i + 1] & 0xf8;
       const b = rgba[i + 2] & 0xf8;
@@ -48,10 +35,8 @@ class BuiltinGifEncoder {
       colorMap.set(key, (colorMap.get(key) || 0) + 1);
     }
 
-    // Sort by popularity and pick top 255 colors
     const sorted = Array.from(colorMap.entries()).sort((a, b) => b[1] - a[1]);
     const palette = [];
-    // Index 0 reserved for background/black
     palette.push([0, 0, 0]);
 
     for (let i = 0; i < Math.min(254, sorted.length); i++) {
@@ -62,7 +47,6 @@ class BuiltinGifEncoder {
       palette.push([r, g, b]);
     }
 
-    // Fill remaining palette slots up to 256
     while (palette.length < 256) {
       palette.push([0, 0, 0]);
     }
@@ -70,12 +54,9 @@ class BuiltinGifEncoder {
     return palette;
   }
 
-  // Map RGBA image data to 256 palette indices
   applyPalette(rgba, palette) {
     const numPixels = this.width * this.height;
     const indexed = new Uint8Array(numPixels);
-
-    // Fast lookup cache
     const cache = new Map();
 
     for (let i = 0; i < numPixels; i++) {
@@ -96,7 +77,6 @@ class BuiltinGifEncoder {
       } else {
         let bestIdx = 0;
         let bestDist = Infinity;
-        // Euclidean distance search
         for (let p = 0; p < palette.length; p++) {
           const pal = palette[p];
           const dr = r - pal[0];
@@ -123,11 +103,10 @@ class BuiltinGifEncoder {
     this.frames.push({
       indexed,
       palette,
-      delayCs: Math.max(2, Math.round(delayMs / 10)) // in 1/100ths of second
+      delayCs: Math.max(2, Math.round(delayMs / 10))
     });
   }
 
-  // Standard GIF LZW compression
   encodeLZW(indexed, minCodeSize) {
     const clearCode = 1 << minCodeSize;
     const eoiCode = clearCode + 1;
@@ -157,7 +136,6 @@ class BuiltinGifEncoder {
     let prefix = indexed[0];
     for (let i = 1; i < indexed.length; i++) {
       const suffix = indexed[i];
-      // Hash lookup for (prefix, suffix)
       let found = -1;
       for (let c = clearCode + 2; c < nextCode; c++) {
         if (prefixTable[c] === prefix && suffixTable[c] === suffix) {
@@ -178,7 +156,6 @@ class BuiltinGifEncoder {
             codeSize++;
           }
         } else {
-          // Table full, clear table
           writeCode(clearCode);
           prefixTable.fill(-1);
           codeSize = minCodeSize + 1;
@@ -195,7 +172,6 @@ class BuiltinGifEncoder {
       outBytes.push(curVal & 0xff);
     }
 
-    // Packetize into blocks of max 255 bytes
     const blocks = [];
     blocks.push(minCodeSize);
 
@@ -208,7 +184,7 @@ class BuiltinGifEncoder {
       }
       pos += blockSize;
     }
-    blocks.push(0x00); // Block terminator
+    blocks.push(0x00);
 
     return new Uint8Array(blocks);
   }
@@ -221,65 +197,52 @@ class BuiltinGifEncoder {
       out.push((val >> 8) & 0xff);
     }
 
-    // 1. Header: GIF89a
     const header = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61];
     out.push(...header);
 
-    // 2. Logical Screen Descriptor
     push16(this.width);
     push16(this.height);
-    // Packed: No global color table, 8 bits/pixel
-    out.push(0x70); // 0111 0000
-    out.push(0x00); // Background color index
-    out.push(0x00); // Pixel aspect ratio
+    out.push(0x70);
+    out.push(0x00);
+    out.push(0x00);
 
-    // 3. Netscape 2.0 Loop Extension (Infinite Loop)
     const netscapeExt = [
       0x21, 0xff, 0x0b,
-      0x4e, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2e, 0x30, // NETSCAPE2.0
+      0x4e, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2e, 0x30,
       0x03, 0x01, 0x00, 0x00, 0x00
     ];
     out.push(...netscapeExt);
 
-    // 4. Frames
     for (const frame of this.frames) {
-      // Graphic Control Extension
       out.push(0x21, 0xf9, 0x04);
-      out.push(0x04); // Disposal: Restore to background (2 << 2)
+      out.push(0x04);
       push16(frame.delayCs);
-      out.push(0x00); // Transparent index (none)
-      out.push(0x00); // Block terminator
+      out.push(0x00);
+      out.push(0x00);
 
-      // Image Descriptor
-      out.push(0x2c); // Separator
-      push16(0); // Left
-      push16(0); // Top
+      out.push(0x2c);
+      push16(0);
+      push16(0);
       push16(this.width);
       push16(this.height);
-      out.push(0x87); // Local color table present (1), 256 colors (7)
+      out.push(0x87);
 
-      // Local Color Table (256 * 3 bytes)
       for (const rgb of frame.palette) {
         out.push(rgb[0], rgb[1], rgb[2]);
       }
 
-      // LZW Image Data
       const lzwData = this.encodeLZW(frame.indexed, 8);
       for (let i = 0; i < lzwData.length; i++) {
         out.push(lzwData[i]);
       }
     }
 
-    // 5. Trailer
     out.push(0x3b);
 
     return new Uint8Array(out);
   }
 }
 
-/**
- * Main Video Grid Engine Class
- */
 class VideoGridEngine {
   constructor() {
     this.CASE_SIZE = 354;
@@ -469,7 +432,6 @@ class VideoGridEngine {
       message: `Initialisation : ${totalFrames} frames à traiter (${fps} FPS)`
     });
 
-    // 1. Canvases Setup
     const overlayCanvas = document.createElement('canvas');
     overlayCanvas.width = gridInfo.gridWidth;
     overlayCanvas.height = gridInfo.gridHeight;
@@ -485,7 +447,6 @@ class VideoGridEngine {
       };
     });
 
-    // 2. MP4 Setup (WebCodecs)
     const canEncodeMP4 = this.hasWebCodecs && !!this.Muxer;
     let overlayMp4Muxer = null;
     let overlayMp4Encoder = null;
@@ -570,14 +531,12 @@ class VideoGridEngine {
       }
     }
 
-    // 3. GIF Encoders (Pure Built-in GIF Encoder, 100% reliable)
     const overlayGif = new BuiltinGifEncoder(gridInfo.gridWidth, gridInfo.gridHeight);
     const caseGifs = [];
     for (let i = 0; i < 6; i++) {
       caseGifs.push(new BuiltinGifEncoder(this.CASE_SIZE, this.CASE_SIZE));
     }
 
-    // 4. Extract & Encode Frames
     const originalTime = videoElement.currentTime;
 
     for (let frameIdx = 0; frameIdx < totalFrames; frameIdx++) {
@@ -587,7 +546,6 @@ class VideoGridEngine {
       const timestampUs = frameIdx * frameIntervalUs;
       const isKeyFrame = frameIdx % (fps * 2) === 0;
 
-      // Render Overlay
       this.renderOverlayFrame(overlayCtx, videoElement, gridInfo, transform, bgColor);
 
       if (overlayMp4Encoder && overlayMp4Encoder.state === 'configured') {
@@ -596,11 +554,9 @@ class VideoGridEngine {
         frame.close();
       }
 
-      // Add to Builtin GIF Encoder
       const overlayImgData = overlayCtx.getImageData(0, 0, gridInfo.gridWidth, gridInfo.gridHeight);
       overlayGif.addFrame(overlayImgData.data, frameDelayMs);
 
-      // Render 6 Cases
       for (let i = 0; i < 6; i++) {
         const cell = gridInfo.cells[i];
         const { canvas, ctx } = caseCanvases[i];
@@ -637,7 +593,6 @@ class VideoGridEngine {
       message: 'Finalisation des fichiers MP4 et GIF...'
     });
 
-    // 5. Finalize MP4
     let overlayMp4Blob = null;
     let caseMp4Blobs = [];
 
@@ -659,7 +614,6 @@ class VideoGridEngine {
       }
     }
 
-    // 6. Finalize Built-in GIF
     onProgress({
       step: 'gif',
       percent: 88,
@@ -687,12 +641,10 @@ class VideoGridEngine {
 
     const zip = new JSZip();
 
-    // Folder 1: "full overlay"
     const fullOverlayFolder = zip.folder('full overlay');
     if (overlayMp4Blob) fullOverlayFolder.file('overlay.mp4', overlayMp4Blob);
     fullOverlayFolder.file('overlay.gif', overlayGifBlob);
 
-    // Folder 2: "Case par Case"
     const caseParCaseFolder = zip.folder('Case par Case');
     for (let i = 0; i < 6; i++) {
       const caseNum = i + 1;
@@ -734,5 +686,4 @@ class VideoGridEngine {
   }
 }
 
-// Export globally
 window.VideoGridEngine = VideoGridEngine;

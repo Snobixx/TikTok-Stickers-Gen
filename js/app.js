@@ -1,12 +1,6 @@
-/**
- * TikTok Stickers Grid - Main Application Controller
- * Version Classic Script (Compatible file://, localhost et GitHub Pages)
- */
-
 (function () {
   'use strict';
 
-  // DOM Elements
   let videoInput;
   let dropzone;
   let fileLoadedBar;
@@ -15,7 +9,6 @@
   let removeVideoBtn;
   let sampleVideoBtn;
 
-  // Controls
   let layout3x2Btn;
   let layout2x3Btn;
   let fitCoverBtn;
@@ -36,7 +29,6 @@
   let colorSwatches;
   let generateBtn;
 
-  // Stage & Preview
   let stageEmptyState;
   let gridStageViewport;
   let stickersGridDisplay;
@@ -47,43 +39,36 @@
   let tabSingleCase;
   let caseSelectorBtns;
 
-  // Playback
   let playPauseBtn;
   let playPauseIcon;
   let seekSlider;
   let timecodeDisplay;
 
-  // Progress Modal
   let progressModal;
   let progressBarFill;
   let progressPercent;
   let progressStatusText;
   let progressLogs;
 
-  // Results Screen
   let resultsModal;
   let downloadZipBtn;
   let closeResultsBtn;
   let individualFilesList;
 
-  // Internal State
   let engine;
   let activeVideo;
   let isVideoLoaded = false;
   let currentLayout = '3x2';
   let currentFit = 'cover';
   let currentBgColor = '#000000';
-  let activePreviewTab = 'grid'; // 'grid' | 'single'
-  let activeCaseIndex = 1; // 1 to 6
+  let activePreviewTab = 'grid';
+  let activeCaseIndex = 1;
   let animationFrameId = null;
   let currentZipBlob = null;
   let generatedResults = null;
   let previewCanvases = [];
 
   function init() {
-    console.log('[TikTok Stickers Studio] Initialisation...');
-
-    // Resolve DOM elements
     videoInput = document.getElementById('videoInput');
     dropzone = document.getElementById('uploadDropzone');
     fileLoadedBar = document.getElementById('fileLoadedInfo');
@@ -138,7 +123,6 @@
     closeResultsBtn = document.getElementById('closeResultsBtn');
     individualFilesList = document.getElementById('individualFilesList');
 
-    // Setup active video element
     activeVideo = document.getElementById('activeVideoPlayer');
     if (!activeVideo) {
       activeVideo = document.createElement('video');
@@ -150,18 +134,13 @@
       document.body.appendChild(activeVideo);
     }
 
-    // Engine initialization
     if (window.VideoGridEngine) {
       engine = new window.VideoGridEngine();
-    } else {
-      console.error('VideoGridEngine non disponible sur window');
     }
 
     setupPreviewCanvases();
     setupEventListeners();
     updateWebCodecsBadge();
-
-    console.log('[TikTok Stickers Studio] Prêt ! Glissez une vidéo pour commencer.');
   }
 
   function updateWebCodecsBadge() {
@@ -215,10 +194,8 @@
   }
 
   function setupEventListeners() {
-    // 1. File Input & Dropzone
     if (videoInput) {
       videoInput.addEventListener('change', (e) => {
-        console.log('[Event] videoInput change:', e.target.files);
         if (e.target.files && e.target.files.length > 0) {
           handleFileSelected(e.target.files[0]);
         }
@@ -243,7 +220,6 @@
       });
 
       dropzone.addEventListener('drop', (e) => {
-        console.log('[Event] dropzone drop:', e.dataTransfer.files);
         if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
           handleFileSelected(e.dataTransfer.files[0]);
         }
@@ -258,15 +234,12 @@
       sampleVideoBtn.addEventListener('click', loadSampleDemoVideo);
     }
 
-    // Layout
     if (layout3x2Btn) layout3x2Btn.addEventListener('click', () => setLayout('3x2'));
     if (layout2x3Btn) layout2x3Btn.addEventListener('click', () => setLayout('2x3'));
 
-    // Fit
     if (fitCoverBtn) fitCoverBtn.addEventListener('click', () => setFitMode('cover'));
     if (fitContainBtn) fitContainBtn.addEventListener('click', () => setFitMode('contain'));
 
-    // Sliders
     if (zoomSlider) {
       zoomSlider.addEventListener('input', (e) => {
         if (zoomValue) zoomValue.textContent = `${parseFloat(e.target.value).toFixed(1)}x`;
@@ -311,7 +284,6 @@
       });
     }
 
-    // Color Swatches
     if (colorSwatches) {
       colorSwatches.forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -323,7 +295,6 @@
       });
     }
 
-    // Tabs
     if (tabFullGrid) tabFullGrid.addEventListener('click', () => switchPreviewTab('grid'));
     if (tabSingleCase) tabSingleCase.addEventListener('click', () => switchPreviewTab('single'));
 
@@ -335,7 +306,6 @@
       });
     }
 
-    // Playback
     if (playPauseBtn) playPauseBtn.addEventListener('click', togglePlayPause);
     if (seekSlider) {
       seekSlider.addEventListener('input', (e) => {
@@ -367,7 +337,6 @@
       });
     }
 
-    // Quick Trim Tools
     const setStartCurrentBtn = document.getElementById('setStartCurrentBtn');
     if (setStartCurrentBtn) {
       setStartCurrentBtn.addEventListener('click', () => {
@@ -384,7 +353,6 @@
       });
     });
 
-    // Generate & Download Actions
     if (generateBtn) generateBtn.addEventListener('click', startGenerationProcess);
 
     if (downloadZipBtn) {
@@ -408,13 +376,11 @@
       });
     }
 
-    // Drag-to-Pan on Preview Stage
     setupDragToPan();
   }
 
   function handleFileSelected(file) {
     if (!file) return;
-    console.log('[handleFileSelected] Fichier sélectionné :', file.name, file.type, file.size);
 
     const isVideo = (file.type && file.type.startsWith('video/')) ||
                     /\.(mp4|webm|mov|mkv|m4v|avi|ogv)$/i.test(file.name);
@@ -426,28 +392,22 @@
 
     try {
       const fileUrl = URL.createObjectURL(file);
-      console.log('[handleFileSelected] Object URL généré :', fileUrl);
       loadVideoSource(fileUrl, file.name, file.size);
     } catch (err) {
-      console.error('[handleFileSelected] Erreur Object URL :', err);
       alert('Erreur lors de la lecture du fichier : ' + err.message);
     }
   }
 
   function loadVideoSource(url, name, sizeInBytes) {
-    console.log('[loadVideoSource] Chargement vidéo :', name);
-
     activeVideo.pause();
 
     const onMetadata = () => {
-      console.log('[activeVideo] Métadonnées reçues !', activeVideo.videoWidth, 'x', activeVideo.videoHeight, 'Durée:', activeVideo.duration);
       cleanup();
       setupVideoState(name, sizeInBytes);
     };
 
     const onError = (e) => {
       cleanup();
-      console.error('[activeVideo] Erreur de lecture vidéo :', activeVideo.error, e);
       const code = activeVideo.error ? activeVideo.error.code : 'inconnu';
       alert(`Impossible de lire cette vidéo (Code erreur: ${code}).\nAssurez-vous qu'il s'agit d'une vidéo MP4/WebM lisible par votre navigateur.`);
     };
@@ -469,7 +429,6 @@
   function setupVideoState(name, sizeInBytes) {
     isVideoLoaded = true;
 
-    // Display loaded bar
     if (dropzone) dropzone.style.display = 'none';
     if (fileLoadedBar) fileLoadedBar.style.display = 'flex';
     if (fileNameDisplay) fileNameDisplay.textContent = name;
@@ -493,13 +452,11 @@
 
     if (generateBtn) generateBtn.disabled = false;
 
-    // Autoplay or render frame
     const playPromise = activeVideo.play();
     if (playPromise !== undefined) {
       playPromise.then(() => {
         startRenderLoop();
-      }).catch((err) => {
-        console.warn('Autoplay bloqué par le navigateur, affichage fixe :', err);
+      }).catch(() => {
         renderPreview();
       });
     }
@@ -527,7 +484,6 @@
   }
 
   function loadSampleDemoVideo() {
-    console.log('[Demo] Génération de la vidéo test...');
     const canvas = document.createElement('canvas');
     canvas.width = 1080;
     canvas.height = 1080;
@@ -551,7 +507,7 @@
     recorder.start();
 
     let frame = 0;
-    const totalFrames = 90; // 3 seconds
+    const totalFrames = 90;
 
     function drawSynthFrame() {
       ctx.fillStyle = '#090a10';
@@ -851,7 +807,6 @@
         showResultsScreen(results);
       }, 600);
     } catch (err) {
-      console.error('Erreur lors de la génération :', err);
       alert('Une erreur est survenue lors de l\'encodage. ' + err.message);
       if (progressModal) progressModal.style.display = 'none';
     }
@@ -931,7 +886,6 @@
     });
   }
 
-  // Trigger init on DOM load or immediately if already loaded
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
