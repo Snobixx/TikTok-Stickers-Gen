@@ -281,6 +281,24 @@ class VideoGridEngine {
     this.hasWebCodecs = typeof window.VideoEncoder !== 'undefined' && !!this.Muxer;
   }
 
+  async getSupportedAvcCodec(width, height, bitrate, framerate) {
+    const codecs = ['avc1.42001E', 'avc1.42001f', 'avc1.420028', 'avc1.420029', 'avc1.42002A'];
+    if (typeof VideoEncoder.isConfigSupported !== 'function') return 'avc1.420028';
+
+    for (const codec of codecs) {
+      const support = await VideoEncoder.isConfigSupported({
+        codec,
+        width,
+        height,
+        bitrate,
+        framerate
+      });
+      if (support && support.supported) return codec;
+    }
+
+    throw new Error(`Aucun profil AVC compatible avec la résolution ${width}×${height}.`);
+  }
+
   async seekVideo(video, timeInSeconds) {
     return new Promise((resolve) => {
       let resolved = false;
@@ -510,30 +528,18 @@ class VideoGridEngine {
 
     if (canEncodeMP4) {
       try {
-        let avcCodec = 'avc1.42001E';
-        if (typeof VideoEncoder.isConfigSupported === 'function') {
-          const check1 = await VideoEncoder.isConfigSupported({
-            codec: 'avc1.42001E',
-            width: this.CASE_SIZE,
-            height: this.CASE_SIZE,
-            bitrate: 1500000,
-            framerate: fps
-          });
-          if (check1 && check1.supported) {
-            avcCodec = 'avc1.42001E';
-          } else {
-            const check2 = await VideoEncoder.isConfigSupported({
-              codec: 'avc1.42001f',
-              width: this.CASE_SIZE,
-              height: this.CASE_SIZE,
-              bitrate: 1500000,
-              framerate: fps
-            });
-            if (check2 && check2.supported) {
-              avcCodec = 'avc1.42001f';
-            }
-          }
-        }
+        const overlayAvcCodec = await this.getSupportedAvcCodec(
+          gridInfo.gridWidth,
+          gridInfo.gridHeight,
+          quality === 'high' ? 3_500_000 : 2_000_000,
+          fps
+        );
+        const caseAvcCodec = await this.getSupportedAvcCodec(
+          this.CASE_SIZE,
+          this.CASE_SIZE,
+          quality === 'high' ? 1_500_000 : 1_000_000,
+          fps
+        );
 
         overlayMp4Muxer = new this.Muxer({
           target: new this.ArrayBufferTarget(),
@@ -551,7 +557,7 @@ class VideoGridEngine {
         });
 
         overlayMp4Encoder.configure({
-          codec: avcCodec,
+          codec: overlayAvcCodec,
           width: gridInfo.gridWidth,
           height: gridInfo.gridHeight,
           bitrate: quality === 'high' ? 3_500_000 : 2_000_000,
@@ -576,7 +582,7 @@ class VideoGridEngine {
           });
 
           enc.configure({
-            codec: avcCodec,
+            codec: caseAvcCodec,
             width: this.CASE_SIZE,
             height: this.CASE_SIZE,
             bitrate: quality === 'high' ? 1_500_000 : 1_000_000,
@@ -801,33 +807,15 @@ class VideoGridEngine {
 
     let overlayMp4Muxer = null;
     let overlayMp4Encoder = null;
-    let avcCodec = 'avc1.42001E';
 
     if (this.hasWebCodecs && this.Muxer) {
       try {
-        if (typeof VideoEncoder.isConfigSupported === 'function') {
-          const check1 = await VideoEncoder.isConfigSupported({
-            codec: 'avc1.42001E',
-            width: gridInfo.gridWidth,
-            height: gridInfo.gridHeight,
-            bitrate: 2500000,
-            framerate: fps
-          });
-          if (check1 && check1.supported) {
-            avcCodec = 'avc1.42001E';
-          } else {
-            const check2 = await VideoEncoder.isConfigSupported({
-              codec: 'avc1.42001f',
-              width: gridInfo.gridWidth,
-              height: gridInfo.gridHeight,
-              bitrate: 2500000,
-              framerate: fps
-            });
-            if (check2 && check2.supported) {
-              avcCodec = 'avc1.42001f';
-            }
-          }
-        }
+        const avcCodec = await this.getSupportedAvcCodec(
+          gridInfo.gridWidth,
+          gridInfo.gridHeight,
+          quality === 'high' ? 3_500_000 : 2_000_000,
+          fps
+        );
 
         overlayMp4Muxer = new this.Muxer({
           target: new this.ArrayBufferTarget(),
