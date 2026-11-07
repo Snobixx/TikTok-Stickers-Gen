@@ -753,6 +753,166 @@ class VideoGridEngine {
       caseGifBlobs
     };
   }
+
+  async processOverlayOnly(videoElement, options, onProgress) {
+    await this.init();
+
+    const {
+      layoutMode = '3x2',
+      gap = 24,
+      zoom = 1.0,
+      panX = 0,
+      panY = 0,
+      fitMode = 'cover',
+      bgColor = '#000000',
+      startTime = 0,
+      duration = 2.5,
+      fps = 20,
+      quality = 'high'
+    } = options;
+
+    const gridInfo = this.getGridDimensions(layoutMode, gap);
+    const transform = this.getVideoTransform(videoElement, gridInfo.gridWidth, gridInfo.gridHeight, {
+      zoom,
+      panX,
+      panY,
+      fitMode
+    });
+
+    const totalFrames = Math.max(1, Math.round(duration * fps));
+    const frameIntervalUs = Math.round(1_000_000 / fps);
+
+    if (typeof onProgress === 'function') {
+      onProgress({
+        step: 'init',
+        percent: 5,
+        message: `Initialisation Vidéo iOS : ${totalFrames} frames (${fps} FPS)`
+      });
+    }
+
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = gridInfo.gridWidth;
+    overlayCanvas.height = gridInfo.gridHeight;
+    const overlayCtx = overlayCanvas.getContext('2d', { willReadFrequently: true });
+
+    let overlayMp4Muxer = null;
+    let overlayMp4Encoder = null;
+    let avcCodec = 'avc1.42001E';
+
+    if (this.hasWebCodecs && this.Muxer) {
+      try {
+        if (typeof VideoEncoder.isConfigSupported === 'function') {
+          const check1 = await VideoEncoder.isConfigSupported({
+            codec: 'avc1.42001E',
+            width: gridInfo.gridWidth,
+            height: gridInfo.gridHeight,
+            bitrate: 2500000,
+            framerate: fps
+          });
+          if (check1 && check1.supported) {
+            avcCodec = 'avc1.42001E';
+          } else {
+            const check2 = await VideoEncoder.isConfigSupported({
+              codec: 'avc1.42001f',
+              width: gridInfo.gridWidth,
+              height: gridInfo.gridHeight,
+              bitrate: 2500000,
+              framerate: fps
+            });
+            if (check2 && check2.supported) {
+              avcCodec = 'avc1.42001f';
+            }
+          }
+        }
+
+        overlayMp4Muxer = new this.Muxer({
+          target: new this.ArrayBufferTarget(),
+          video: {
+            codec: 'avc',
+            width: gridInfo.gridWidth,
+            height: gridInfo.gridHeight
+          },
+          fastStart: 'in-memory'
+        });
+
+        overlayMp4Encoder = new VideoEncoder({
+          output: (chunk, meta) => overlayMp4Muxer.addVideoChunk(chunk, meta),
+          error: (e) => console.warn('Overlay MP4 error:', e)
+        });
+
+        overlayMp4Encoder.configure({
+          codec: avcCodec,
+          width: gridInfo.gridWidth,
+          height: gridInfo.gridHeight,
+          bitrate: quality === 'high' ? 3_500_000 : 2_000_000,
+          framerate: fps,
+          latencyMode: 'realtime'
+        });
+      } catch (err) {
+        console.warn('WebCodecs init error:', err);
+      }
+    }
+
+    if (!overlayMp4Encoder || overlayMp4Encoder.state !== 'configured') {
+      throw new Error('Encodeur MP4 non supporté ou indisponible sur ce navigateur.');
+    }
+
+    const originalTime = videoElement.currentTime;
+
+    for (let frameIdx = 0; frameIdx < totalFrames; frameIdx++) {
+      const currentTimeSec = startTime + frameIdx / fps;
+      await this.seekVideo(videoElement, currentTimeSec);
+
+      const timestampUs = frameIdx * frameIntervalUs;
+      const isKeyFrame = frameIdx % (fps * 2) === 0;
+
+      this.renderOverlayFrame(overlayCtx, videoElement, gridInfo, transform, bgColor);
+
+      if (overlayMp4Encoder.encodeQueueSize > 4) {
+        await new Promise((r) => setTimeout(r, 15));
+      }
+      const frame = new VideoFrame(overlayCanvas, { timestamp: timestampUs });
+      overlayMp4Encoder.encode(frame, { keyFrame: isKeyFrame });
+      frame.close();
+
+      const framePercent = Math.round(10 + (frameIdx / totalFrames) * 80);
+      if (typeof onProgress === 'function') {
+        onProgress({
+          step: 'encoding',
+          percent: framePercent,
+          currentFrame: frameIdx + 1,
+          totalFrames,
+          message: `Rendu Full Overlay : ${frameIdx + 1}/${totalFrames} (${framePercent}%)`
+        });
+      }
+
+      await new Promise((r) => setTimeout(r, 4));
+    }
+
+    try {
+      videoElement.currentTime = originalTime;
+    } catch (e) {}
+
+    if (typeof onProgress === 'function') {
+      onProgress({
+        step: 'finalizing',
+        percent: 92,
+        message: 'Finalisation du fichier MP4 iOS...'
+      });
+    }
+
+    const overlayMp4Blob = await this.safeFlush(overlayMp4Encoder, overlayMp4Muxer, 3000);
+
+    if (typeof onProgress === 'function') {
+      onProgress({
+        step: 'done',
+        percent: 100,
+        message: 'Vidéo Full Overlay MP4 prête !'
+      });
+    }
+
+    return { overlayMp4Blob };
+  }
 }
 
 window.VideoGridEngine = VideoGridEngine;
