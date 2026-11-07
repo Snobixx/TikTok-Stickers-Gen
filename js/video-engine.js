@@ -282,10 +282,23 @@ class VideoGridEngine {
   }
 
   async getSupportedAvcCodec(width, height, bitrate, framerate) {
-    const codecs = ['avc1.42001E', 'avc1.42001f', 'avc1.420028', 'avc1.420029', 'avc1.42002A'];
-    if (typeof VideoEncoder.isConfigSupported !== 'function') return 'avc1.420028';
+    const macroblocks = Math.ceil(width / 16) * Math.ceil(height / 16);
+    const profiles = [
+      { codec: 'avc1.42001E', maxMacroblocks: 1620 },
+      { codec: 'avc1.42001f', maxMacroblocks: 3600 },
+      { codec: 'avc1.420020', maxMacroblocks: 5120 },
+      { codec: 'avc1.420028', maxMacroblocks: 8192 },
+      { codec: 'avc1.420029', maxMacroblocks: 8192 },
+      { codec: 'avc1.42002A', maxMacroblocks: 8704 }
+    ].filter((profile) => profile.maxMacroblocks >= macroblocks);
 
-    for (const codec of codecs) {
+    if (profiles.length === 0) {
+      throw new Error(`La résolution ${width}×${height} dépasse les profils AVC pris en charge.`);
+    }
+
+    if (typeof VideoEncoder.isConfigSupported !== 'function') return profiles[0].codec;
+
+    for (const { codec } of profiles) {
       const support = await VideoEncoder.isConfigSupported({
         codec,
         width,
