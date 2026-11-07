@@ -782,6 +782,10 @@ class VideoGridEngine {
     const totalFrames = Math.max(1, Math.round(duration * fps));
     const frameIntervalUs = Math.round(1_000_000 / fps);
 
+    if (!this.hasWebCodecs || !this.Muxer) {
+      return this.processOverlayWithMediaRecorder(videoElement, options, onProgress);
+    }
+
     if (typeof onProgress === 'function') {
       onProgress({
         step: 'init',
@@ -854,7 +858,7 @@ class VideoGridEngine {
     }
 
     if (!overlayMp4Encoder || overlayMp4Encoder.state !== 'configured') {
-      throw new Error('Encodeur MP4 non supporté ou indisponible sur ce navigateur.');
+      return this.processOverlayWithMediaRecorder(videoElement, options, onProgress);
     }
 
     const originalTime = videoElement.currentTime;
@@ -903,6 +907,10 @@ class VideoGridEngine {
 
     const overlayMp4Blob = await this.safeFlush(overlayMp4Encoder, overlayMp4Muxer, 3000);
 
+    if (!overlayMp4Blob || !overlayMp4Blob.size) {
+      return this.processOverlayWithMediaRecorder(videoElement, options, onProgress);
+    }
+
     if (typeof onProgress === 'function') {
       onProgress({
         step: 'done',
@@ -911,7 +919,120 @@ class VideoGridEngine {
       });
     }
 
-    return { overlayMp4Blob };
+    return { overlayMp4Blob, fileExtension: 'mp4' };
+  }
+
+  async processOverlayWithMediaRecorder(videoElement, options, onProgress) {
+    const {
+      layoutMode = '3x2',
+      gap = 24,
+      zoom = 1.0,
+      panX = 0,
+      panY = 0,
+      fitMode = 'cover',
+      bgColor = '#000000',
+      startTime = 0,
+      duration = 2.5,
+      fps = 20
+    } = options;
+
+    if (typeof MediaRecorder === 'undefined' || typeof HTMLCanvasElement.prototype.captureStream !== 'function') {
+      throw new Error('L’export vidéo n’est pas pris en charge par ce navigateur.');
+    }
+
+    const gridInfo = this.getGridDimensions(layoutMode, gap);
+    const transform = this.getVideoTransform(videoElement, gridInfo.gridWidth, gridInfo.gridHeight, {
+      zoom,
+      panX,
+      panY,
+      fitMode
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = gridInfo.gridWidth;
+    canvas.height = gridInfo.gridHeight;
+    const ctx = canvas.getContext('2d');
+    const mimeTypes = [
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm'
+    ];
+    const mimeType = typeof MediaRecorder.isTypeSupported === 'function'
+      ? mimeTypes.find((type) => MediaRecorder.isTypeSupported(type))
+      : null;
+
+    if (typeof MediaRecorder.isTypeSupported === 'function' && !mimeType) {
+      throw new Error('Aucun format vidéo compatible (MP4/WebM) n’est disponible dans ce navigateur.');
+    }
+
+    const stream = canvas.captureStream(fps);
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
+    const outputMimeType = mimeType || recorder.mimeType || 'video/webm';
+    const chunks = [];
+    const originalTime = videoElement.currentTime;
+    const wasPlaying = !videoElement.paused;
+    const wasLooping = videoElement.loop;
+    const endTime = Math.min(startTime + duration, videoElement.duration || startTime + duration);
+
+    if (typeof onProgress === 'function') {
+      onProgress({ step: 'init', percent: 5, message: `Export vidéo ${outputMimeType.includes('mp4') ? 'MP4' : 'WebM'}...` });
+    }
+
+    const recording = new Promise((resolve, reject) => {
+      recorder.addEventListener('dataavailable', (event) => {
+        if (event.data.size) chunks.push(event.data);
+      });
+      recorder.addEventListener('error', (event) => reject(event.error || new Error('Erreur pendant l’enregistrement vidéo.')), { once: true });
+      recorder.addEventListener('stop', () => resolve(new Blob(chunks, { type: outputMimeType })), { once: true });
+    });
+
+    try {
+      videoElement.pause();
+      videoElement.loop = false;
+      await this.seekVideo(videoElement, startTime);
+      this.renderOverlayFrame(ctx, videoElement, gridInfo, transform, bgColor);
+      recorder.start(250);
+      await videoElement.play();
+
+      while (videoElement.currentTime < endTime && !videoElement.ended) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        this.renderOverlayFrame(ctx, videoElement, gridInfo, transform, bgColor);
+        if (typeof onProgress === 'function') {
+          const percent = Math.min(90, Math.round(10 + ((videoElement.currentTime - startTime) / duration) * 80));
+          onProgress({
+            step: 'encoding',
+            percent,
+            message: `Enregistrement vidéo : ${Math.min(videoElement.currentTime - startTime, duration).toFixed(1)}/${duration.toFixed(1)} s`
+          });
+        }
+      }
+
+      videoElement.pause();
+      recorder.stop();
+      const blob = await recording;
+      if (!blob.size) throw new Error('L’enregistrement vidéo est vide.');
+
+      if (typeof onProgress === 'function') {
+        onProgress({ step: 'done', percent: 100, message: `Vidéo ${outputMimeType.includes('mp4') ? 'MP4' : 'WebM'} prête !` });
+      }
+
+      return {
+        overlayMp4Blob: blob,
+        fileExtension: outputMimeType.includes('mp4') ? 'mp4' : 'webm'
+      };
+    } catch (error) {
+      if (recorder.state !== 'inactive') recorder.stop();
+      throw error;
+    } finally {
+      videoElement.pause();
+      videoElement.loop = wasLooping;
+      await this.seekVideo(videoElement, originalTime);
+      stream.getTracks().forEach((track) => track.stop());
+      if (wasPlaying) videoElement.play().catch(() => {});
+    }
   }
 }
 

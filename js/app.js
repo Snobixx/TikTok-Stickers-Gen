@@ -52,6 +52,8 @@
 
   let resultsModal;
   let downloadZipBtn;
+  let downloadOverlayMp4DirectBtn;
+  let downloadOverlayMp4ModalBtn;
   let closeResultsBtn;
   let individualFilesList;
 
@@ -66,6 +68,8 @@
   let animationFrameId = null;
   let currentZipBlob = null;
   let generatedResults = null;
+  let directOverlayMp4Blob = null;
+  let directOverlayMp4Extension = 'mp4';
   let previewCanvases = [];
 
   function init() {
@@ -120,6 +124,11 @@
 
     resultsModal = document.getElementById('resultsModal');
     downloadZipBtn = document.getElementById('downloadZipBtn');
+    downloadOverlayMp4DirectBtn = document.getElementById('downloadOverlayMp4DirectBtn');
+    downloadOverlayMp4ModalBtn = document.getElementById('downloadOverlayMp4ModalBtn');
+    [downloadOverlayMp4DirectBtn, downloadOverlayMp4ModalBtn].forEach((button) => {
+      if (button) button.dataset.defaultLabel = button.textContent.trim();
+    });
     closeResultsBtn = document.getElementById('closeResultsBtn');
     individualFilesList = document.getElementById('individualFilesList');
 
@@ -355,17 +364,20 @@
 
     if (generateBtn) generateBtn.addEventListener('click', startGenerationProcess);
 
+    if (downloadOverlayMp4DirectBtn) {
+      downloadOverlayMp4DirectBtn.addEventListener('click', () => handleOverlayMp4Download(downloadOverlayMp4DirectBtn));
+    }
+
+    if (downloadOverlayMp4ModalBtn) {
+      downloadOverlayMp4ModalBtn.addEventListener('click', () => {
+        handleOverlayMp4Download(downloadOverlayMp4ModalBtn);
+      });
+    }
+
     if (downloadZipBtn) {
       downloadZipBtn.addEventListener('click', () => {
         if (currentZipBlob) {
-          const url = URL.createObjectURL(currentZipBlob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `TikTok_Stickers_${currentLayout}_Pack.zip`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 2000);
+          downloadBlob(currentZipBlob, `TikTok_Stickers_${currentLayout}_Pack.zip`);
         }
       });
     }
@@ -399,6 +411,17 @@
   }
 
   function loadVideoSource(url, name, sizeInBytes) {
+    isVideoLoaded = false;
+    currentZipBlob = null;
+    generatedResults = null;
+    directOverlayMp4Blob = null;
+    directOverlayMp4Extension = 'mp4';
+    if (generateBtn) generateBtn.disabled = true;
+    if (downloadOverlayMp4DirectBtn) downloadOverlayMp4DirectBtn.disabled = true;
+    if (downloadOverlayMp4ModalBtn) downloadOverlayMp4ModalBtn.disabled = true;
+    setDownloadButtonLabel(downloadOverlayMp4DirectBtn, downloadOverlayMp4DirectBtn && downloadOverlayMp4DirectBtn.dataset.defaultLabel);
+    setDownloadButtonLabel(downloadOverlayMp4ModalBtn, downloadOverlayMp4ModalBtn && downloadOverlayMp4ModalBtn.dataset.defaultLabel);
+
     activeVideo.pause();
 
     const onMetadata = () => {
@@ -451,6 +474,7 @@
     if (gridStageViewport) gridStageViewport.style.display = 'block';
 
     if (generateBtn) generateBtn.disabled = false;
+    if (downloadOverlayMp4DirectBtn) downloadOverlayMp4DirectBtn.disabled = false;
 
     const playPromise = activeVideo.play();
     if (playPromise !== undefined) {
@@ -479,6 +503,7 @@
     if (gridStageViewport) gridStageViewport.style.display = 'none';
     if (singleCaseView) singleCaseView.style.display = 'none';
     if (generateBtn) generateBtn.disabled = true;
+    if (downloadOverlayMp4DirectBtn) downloadOverlayMp4DirectBtn.disabled = true;
 
     stopRenderLoop();
   }
@@ -765,29 +790,9 @@
     if (progressLogs) progressLogs.innerHTML = '';
     addLog('Démarrage du processus de découpe TikTok...');
 
-    const startTime = trimStartInput ? parseFloat(trimStartInput.value) || 0 : 0;
-    const duration = trimDurationInput ? Math.min(parseFloat(trimDurationInput.value) || 2.5, (activeVideo.duration || 10) - startTime) : 2.5;
-    const fps = fpsSelect ? parseInt(fpsSelect.value, 10) || 20 : 20;
-    const gap = gapSlider ? parseInt(gapSlider.value, 10) : 24;
-    const zoom = zoomSlider ? parseFloat(zoomSlider.value) || 1.0 : 1.0;
-    const panX = panXSlider ? parseInt(panXSlider.value, 10) || 0 : 0;
-    const panY = panYSlider ? parseInt(panYSlider.value, 10) || 0 : 0;
-
     activeVideo.pause();
 
-    const options = {
-      layoutMode: currentLayout,
-      gap,
-      zoom,
-      panX,
-      panY,
-      fitMode: currentFit,
-      bgColor: currentBgColor,
-      startTime,
-      duration,
-      fps,
-      quality: 'high'
-    };
+    const options = getGenerationOptions();
 
     try {
       const results = await engine.processAndGeneratePack(activeVideo, options, (progress) => {
@@ -812,6 +817,106 @@
     }
   }
 
+  function getGenerationOptions() {
+    const startTime = trimStartInput ? parseFloat(trimStartInput.value) || 0 : 0;
+    const duration = trimDurationInput
+      ? Math.min(parseFloat(trimDurationInput.value) || 2.5, (activeVideo.duration || 10) - startTime)
+      : 2.5;
+
+    return {
+      layoutMode: currentLayout,
+      gap: gapSlider ? parseInt(gapSlider.value, 10) : 24,
+      zoom: zoomSlider ? parseFloat(zoomSlider.value) || 1.0 : 1.0,
+      panX: panXSlider ? parseInt(panXSlider.value, 10) || 0 : 0,
+      panY: panYSlider ? parseInt(panYSlider.value, 10) || 0 : 0,
+      fitMode: currentFit,
+      bgColor: currentBgColor,
+      startTime,
+      duration,
+      fps: fpsSelect ? parseInt(fpsSelect.value, 10) || 20 : 20,
+      quality: 'high'
+    };
+  }
+
+  function handleOverlayMp4Download(button) {
+    const blob = (generatedResults && generatedResults.overlayMp4Blob) || directOverlayMp4Blob;
+    if (blob) {
+      const extension = generatedResults && generatedResults.overlayMp4Blob
+        ? 'mp4'
+        : directOverlayMp4Extension;
+      downloadBlob(blob, `overlay.${extension}`);
+      setDownloadButtonLabel(button, button.dataset.defaultLabel);
+      return;
+    }
+
+    startOverlayMp4Generation(button);
+  }
+
+  async function startOverlayMp4Generation(button) {
+    if (!isVideoLoaded || !engine || !downloadOverlayMp4DirectBtn) return;
+
+    const wasGenerateBtnDisabled = !generateBtn || generateBtn.disabled;
+    downloadOverlayMp4DirectBtn.disabled = true;
+    if (downloadOverlayMp4ModalBtn) downloadOverlayMp4ModalBtn.disabled = true;
+    if (generateBtn) generateBtn.disabled = true;
+    if (progressModal) progressModal.style.display = 'flex';
+    if (progressLogs) progressLogs.innerHTML = '';
+    addLog('Préparation de la vidéo Full Overlay...');
+
+    activeVideo.pause();
+
+    try {
+      const result = await engine.processOverlayOnly(activeVideo, getGenerationOptions(), (progress) => {
+        if (progressBarFill) progressBarFill.style.width = `${progress.percent}%`;
+        if (progressPercent) progressPercent.textContent = `${progress.percent}%`;
+        if (progressStatusText) progressStatusText.textContent = progress.message;
+        if (progress.step !== 'encoding' || progress.currentFrame % 10 === 0) {
+          addLog(progress.message, progress.step === 'done');
+        }
+      });
+
+      if (!result.overlayMp4Blob) {
+        throw new Error('L’encodage n’a pas produit de fichier MP4.');
+      }
+
+      directOverlayMp4Blob = result.overlayMp4Blob;
+      directOverlayMp4Extension = result.fileExtension || 'mp4';
+      downloadBlob(directOverlayMp4Blob, `overlay.${directOverlayMp4Extension}`);
+      const readyLabel = `Télécharger la vidéo ${directOverlayMp4Extension.toUpperCase()} à nouveau`;
+      setDownloadButtonLabel(downloadOverlayMp4DirectBtn, readyLabel);
+      setDownloadButtonLabel(downloadOverlayMp4ModalBtn, readyLabel);
+      if (progressModal) progressModal.style.display = 'none';
+    } catch (err) {
+      if (progressModal) progressModal.style.display = 'none';
+      alert('Impossible de générer la vidéo Full Overlay. ' + err.message);
+    } finally {
+      downloadOverlayMp4DirectBtn.disabled = !isVideoLoaded;
+      if (downloadOverlayMp4ModalBtn) downloadOverlayMp4ModalBtn.disabled = !isVideoLoaded;
+      if (generateBtn) generateBtn.disabled = wasGenerateBtnDisabled || !isVideoLoaded;
+    }
+  }
+
+  function setDownloadButtonLabel(button, label) {
+    if (!button) return;
+    const textNode = Array.from(button.childNodes).find((node) =>
+      node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+    );
+    if (textNode) {
+      textNode.textContent = `\n          ${label}\n        `;
+    }
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
   function addLog(text, isDone = false) {
     if (!progressLogs) return;
     const entry = document.createElement('div');
@@ -823,6 +928,9 @@
 
   function showResultsScreen(results) {
     if (resultsModal) resultsModal.style.display = 'flex';
+    if (downloadOverlayMp4ModalBtn) {
+      downloadOverlayMp4ModalBtn.disabled = !isVideoLoaded;
+    }
     if (!individualFilesList) return;
     individualFilesList.innerHTML = '';
 
