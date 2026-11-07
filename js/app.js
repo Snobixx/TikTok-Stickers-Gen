@@ -130,7 +130,7 @@
       activeVideo.playsInline = true;
       activeVideo.muted = true;
       activeVideo.loop = true;
-      activeVideo.style.display = 'none';
+      activeVideo.style.cssText = 'position:fixed; top:0; left:0; width:1px; height:1px; opacity:0.001; pointer-events:none; z-index:-100;';
       document.body.appendChild(activeVideo);
     }
 

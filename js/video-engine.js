@@ -23,7 +23,7 @@ class BuiltinGifEncoder {
   quantize(rgba) {
     const colorMap = new Map();
     const len = rgba.length;
-    const step = len > 354 * 354 * 4 * 2 ? 8 : 4;
+    const step = len > 354 * 354 * 4 * 2 ? 16 : 8;
 
     for (let i = 0; i < len; i += step * 4) {
       const a = rgba[i + 3];
@@ -108,14 +108,17 @@ class BuiltinGifEncoder {
   }
 
   encodeLZW(indexed, minCodeSize) {
+    const HSIZE = 5003;
+    const htab = new Int32Array(HSIZE);
+    const codetab = new Int32Array(HSIZE);
+    htab.fill(-1);
+    codetab.fill(-1);
+
     const clearCode = 1 << minCodeSize;
     const eoiCode = clearCode + 1;
     let codeSize = minCodeSize + 1;
+    let maxCode = 1 << codeSize;
     let nextCode = eoiCode + 1;
-
-    const prefixTable = new Int32Array(4096);
-    const suffixTable = new Uint8Array(4096);
-    prefixTable.fill(-1);
 
     const outBytes = [];
     let curBits = 0;
@@ -134,31 +137,39 @@ class BuiltinGifEncoder {
     writeCode(clearCode);
 
     let prefix = indexed[0];
-    for (let i = 1; i < indexed.length; i++) {
+    const len = indexed.length;
+
+    for (let i = 1; i < len; i++) {
       const suffix = indexed[i];
-      let found = -1;
-      for (let c = clearCode + 2; c < nextCode; c++) {
-        if (prefixTable[c] === prefix && suffixTable[c] === suffix) {
-          found = c;
+      let h = ((suffix << 4) ^ prefix) % HSIZE;
+      if (h < 0) h += HSIZE;
+      let disp = h === 0 ? 1 : HSIZE - h;
+
+      let found = false;
+      while (htab[h] !== -1) {
+        if (htab[h] === ((prefix << 8) | suffix)) {
+          prefix = codetab[h];
+          found = true;
           break;
         }
+        h = (h - disp + HSIZE) % HSIZE;
       }
 
-      if (found !== -1) {
-        prefix = found;
-      } else {
+      if (!found) {
         writeCode(prefix);
         if (nextCode < 4096) {
-          prefixTable[nextCode] = prefix;
-          suffixTable[nextCode] = suffix;
-          nextCode++;
-          if (nextCode >= (1 << codeSize) && codeSize < 12) {
+          htab[h] = (prefix << 8) | suffix;
+          codetab[h] = nextCode++;
+          if (nextCode >= maxCode && codeSize < 12) {
             codeSize++;
+            maxCode = 1 << codeSize;
           }
         } else {
           writeCode(clearCode);
-          prefixTable.fill(-1);
+          htab.fill(-1);
+          codetab.fill(-1);
           codeSize = minCodeSize + 1;
+          maxCode = 1 << codeSize;
           nextCode = eoiCode + 1;
         }
         prefix = suffix;
@@ -172,9 +183,7 @@ class BuiltinGifEncoder {
       outBytes.push(curVal & 0xff);
     }
 
-    const blocks = [];
-    blocks.push(minCodeSize);
-
+    const blocks = [minCodeSize];
     let pos = 0;
     while (pos < outBytes.length) {
       const blockSize = Math.min(255, outBytes.length - pos);
@@ -238,6 +247,7 @@ class BuiltinGifEncoder {
     }
 
     out.push(0x3b);
+    this.frames = [];
 
     return new Uint8Array(out);
   }
@@ -256,6 +266,9 @@ class VideoGridEngine {
     if (window.Mp4Muxer) {
       this.Muxer = window.Mp4Muxer.Muxer;
       this.ArrayBufferTarget = window.Mp4Muxer.ArrayBufferTarget;
+    } else if (window.Muxer) {
+      this.Muxer = window.Muxer;
+      this.ArrayBufferTarget = window.ArrayBufferTarget;
     } else {
       try {
         const muxerModule = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.4/build/mp4-muxer.mjs');
@@ -265,6 +278,7 @@ class VideoGridEngine {
         console.warn('mp4-muxer load notice:', err);
       }
     }
+    this.hasWebCodecs = typeof window.VideoEncoder !== 'undefined' && !!this.Muxer;
   }
 
   async seekVideo(video, timeInSeconds) {
@@ -397,6 +411,47 @@ class VideoGridEngine {
     ctx.restore();
   }
 
+  async safeFlush(encoder, muxer, timeoutMs = 2500) {
+    if (!encoder || encoder.state !== 'configured') {
+      if (muxer) {
+        try {
+          muxer.finalize();
+          return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+        } catch (e) {}
+      }
+      return null;
+    }
+
+    let timer;
+    try {
+      await Promise.race([
+        encoder.flush(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Flush timeout')), timeoutMs);
+        })
+      ]);
+    } catch (err) {
+      console.warn('Flush warning / timeout:', err);
+      try {
+        encoder.reset();
+      } catch (e) {}
+    } finally {
+      clearTimeout(timer);
+    }
+
+    try {
+      encoder.close();
+    } catch (e) {}
+
+    try {
+      muxer.finalize();
+      return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+    } catch (e) {
+      console.warn('Muxer finalize error:', e);
+      return null;
+    }
+  }
+
   async processAndGeneratePack(videoElement, options, onProgress) {
     await this.init();
 
@@ -429,7 +484,7 @@ class VideoGridEngine {
     onProgress({
       step: 'init',
       percent: 5,
-      message: `Initialisation : ${totalFrames} frames à traiter (${fps} FPS)`
+      message: `Initialisation : ${totalFrames} frames (${fps} FPS)`
     });
 
     const overlayCanvas = document.createElement('canvas');
@@ -455,23 +510,27 @@ class VideoGridEngine {
 
     if (canEncodeMP4) {
       try {
-        let avcCodec = 'avc1.42001f';
+        let avcCodec = 'avc1.42001E';
         if (typeof VideoEncoder.isConfigSupported === 'function') {
           const check1 = await VideoEncoder.isConfigSupported({
-            codec: 'avc1.42001f',
+            codec: 'avc1.42001E',
             width: this.CASE_SIZE,
-            height: this.CASE_SIZE
+            height: this.CASE_SIZE,
+            bitrate: 1500000,
+            framerate: fps
           });
-          if (!check1 || !check1.supported) {
+          if (check1 && check1.supported) {
+            avcCodec = 'avc1.42001E';
+          } else {
             const check2 = await VideoEncoder.isConfigSupported({
-              codec: 'avc1.4d002a',
+              codec: 'avc1.42001f',
               width: this.CASE_SIZE,
-              height: this.CASE_SIZE
+              height: this.CASE_SIZE,
+              bitrate: 1500000,
+              framerate: fps
             });
             if (check2 && check2.supported) {
-              avcCodec = 'avc1.4d002a';
-            } else {
-              avcCodec = 'avc1.640028';
+              avcCodec = 'avc1.42001f';
             }
           }
         }
@@ -488,15 +547,16 @@ class VideoGridEngine {
 
         overlayMp4Encoder = new VideoEncoder({
           output: (chunk, meta) => overlayMp4Muxer.addVideoChunk(chunk, meta),
-          error: (e) => console.error('Overlay MP4 Encoder Error:', e)
+          error: (e) => console.warn('Overlay MP4 warning:', e)
         });
 
         overlayMp4Encoder.configure({
           codec: avcCodec,
           width: gridInfo.gridWidth,
           height: gridInfo.gridHeight,
-          bitrate: quality === 'high' ? 4_000_000 : 2_500_000,
-          framerate: fps
+          bitrate: quality === 'high' ? 3_500_000 : 2_000_000,
+          framerate: fps,
+          latencyMode: 'realtime'
         });
 
         for (let i = 0; i < 6; i++) {
@@ -512,22 +572,23 @@ class VideoGridEngine {
 
           const enc = new VideoEncoder({
             output: (chunk, meta) => mux.addVideoChunk(chunk, meta),
-            error: (e) => console.error(`Case ${i + 1} MP4 Encoder Error:`, e)
+            error: (e) => console.warn(`Case ${i + 1} MP4 warning:`, e)
           });
 
           enc.configure({
             codec: avcCodec,
             width: this.CASE_SIZE,
             height: this.CASE_SIZE,
-            bitrate: quality === 'high' ? 2_000_000 : 1_200_000,
-            framerate: fps
+            bitrate: quality === 'high' ? 1_500_000 : 1_000_000,
+            framerate: fps,
+            latencyMode: 'realtime'
           });
 
           caseMp4Muxers.push(mux);
           caseMp4Encoders.push(enc);
         }
       } catch (mp4InitErr) {
-        console.warn('WebCodecs MP4 initialization error:', mp4InitErr);
+        console.warn('WebCodecs MP4 fallback:', mp4InitErr);
       }
     }
 
@@ -549,6 +610,9 @@ class VideoGridEngine {
       this.renderOverlayFrame(overlayCtx, videoElement, gridInfo, transform, bgColor);
 
       if (overlayMp4Encoder && overlayMp4Encoder.state === 'configured') {
+        if (overlayMp4Encoder.encodeQueueSize > 4) {
+          await new Promise((r) => setTimeout(r, 15));
+        }
         const frame = new VideoFrame(overlayCanvas, { timestamp: timestampUs });
         overlayMp4Encoder.encode(frame, { keyFrame: isKeyFrame });
         frame.close();
@@ -564,6 +628,9 @@ class VideoGridEngine {
         this.renderCaseFrame(ctx, videoElement, cell, transform, bgColor);
 
         if (caseMp4Encoders[i] && caseMp4Encoders[i].state === 'configured') {
+          if (caseMp4Encoders[i].encodeQueueSize > 4) {
+            await new Promise((r) => setTimeout(r, 15));
+          }
           const frame = new VideoFrame(canvas, { timestamp: timestampUs });
           caseMp4Encoders[i].encode(frame, { keyFrame: isKeyFrame });
           frame.close();
@@ -582,58 +649,60 @@ class VideoGridEngine {
         message: `Rendu frame ${frameIdx + 1}/${totalFrames} (${framePercent}%)`
       });
 
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 4));
     }
 
-    videoElement.currentTime = originalTime;
+    try {
+      videoElement.currentTime = originalTime;
+    } catch (e) {}
 
     onProgress({
       step: 'finalizing',
-      percent: 85,
-      message: 'Finalisation des fichiers MP4 et GIF...'
+      percent: 82,
+      message: 'Finalisation des fichiers MP4...'
     });
+    await new Promise((r) => setTimeout(r, 20));
 
     let overlayMp4Blob = null;
     let caseMp4Blobs = [];
 
     if (canEncodeMP4 && overlayMp4Encoder) {
-      try {
-        await overlayMp4Encoder.flush();
-        overlayMp4Encoder.close();
-        overlayMp4Muxer.finalize();
-        overlayMp4Blob = new Blob([overlayMp4Muxer.target.buffer], { type: 'video/mp4' });
+      overlayMp4Blob = await this.safeFlush(overlayMp4Encoder, overlayMp4Muxer, 2500);
 
-        for (let i = 0; i < 6; i++) {
-          await caseMp4Encoders[i].flush();
-          caseMp4Encoders[i].close();
-          caseMp4Muxers[i].finalize();
-          caseMp4Blobs.push(new Blob([caseMp4Muxers[i].target.buffer], { type: 'video/mp4' }));
-        }
-      } catch (mp4FlushErr) {
-        console.error('Error finalizing MP4:', mp4FlushErr);
+      for (let i = 0; i < 6; i++) {
+        const b = await this.safeFlush(caseMp4Encoders[i], caseMp4Muxers[i], 2000);
+        caseMp4Blobs.push(b);
       }
     }
 
     onProgress({
       step: 'gif',
       percent: 88,
-      message: 'Compression des 7 fichiers GIF...'
+      message: 'Compression des fichiers GIF...'
     });
+    await new Promise((r) => setTimeout(r, 20));
 
     const overlayGifBytes = overlayGif.finish();
     const overlayGifBlob = new Blob([overlayGifBytes], { type: 'image/gif' });
 
     const caseGifBlobs = [];
     for (let i = 0; i < 6; i++) {
+      onProgress({
+        step: 'gif',
+        percent: 88 + i,
+        message: `Compression GIF case ${i + 1}/6...`
+      });
+      await new Promise((r) => setTimeout(r, 10));
       const bytes = caseGifs[i].finish();
       caseGifBlobs.push(new Blob([bytes], { type: 'image/gif' }));
     }
 
     onProgress({
       step: 'zipping',
-      percent: 92,
-      message: 'Assemblage de l\'archive ZIP structurée...'
+      percent: 94,
+      message: 'Assemblage de l\'archive ZIP...'
     });
+    await new Promise((r) => setTimeout(r, 20));
 
     if (typeof JSZip === 'undefined') {
       throw new Error('La librairie JSZip n\'est pas chargée');
@@ -661,7 +730,7 @@ class VideoGridEngine {
         compressionOptions: { level: 6 }
       },
       (meta) => {
-        const p = Math.round(92 + (meta.percent / 100) * 8);
+        const p = Math.round(94 + (meta.percent / 100) * 6);
         onProgress({
           step: 'zipping',
           percent: p,
